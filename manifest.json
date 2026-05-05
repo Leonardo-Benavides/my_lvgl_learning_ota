@@ -6,7 +6,7 @@
   "min_version": "0.1.0",
   "firmware": {
     "url": "https://raw.githubusercontent.com/Leonardo-Benavides/my_lvgl_learning_ota/main/firmware/my_lvgl_learning.bin",
-    "size": 1584544,
-    "sha256": "96aa803a58990ef4a274335b15ad01f6f31046e2f787409388015b0a0d50a85b"
+    "size": 1590544,
+    "sha256": "fd5ba1c50c9b608d1c28721c43b6a8a8069bc9ea9efa9c7326cfb4ba272f1eef"
   }
 }

@@ -2,11 +2,11 @@
   "schema": 1,
   "project": "my_lvgl_learning",
   "target": "esp32s3",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "min_version": "0.1.0",
   "firmware": {
     "url": "https://raw.githubusercontent.com/Leonardo-Benavides/my_lvgl_learning_ota/master/firmware/my_lvgl_learning.bin",
     "size": 1600992,
-    "sha256": "c0b877fbc05139fb069adc21161654016b8923ecc7bce8ecc820b676fc0dbb0a"
+    "sha256": "131f63a3a0a0df7e1eacb9ac1407acaaf4640094773cd719ea1b1df3b7526b1e"
   }
 }

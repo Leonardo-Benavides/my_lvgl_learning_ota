@@ -12,6 +12,7 @@ Defaults:
   - build dir: build
   - version bump: patch
   - git: commit and push OTA artifacts
+  - after push: fetch and print the remote manifest state
 
 Options:
   --version X.Y.Z       Use an exact version instead of bumping manifest version.
@@ -226,6 +227,118 @@ source_idf() {
   . "$idf_path/export.sh" >/dev/null
 }
 
+manifest_url_from_local_manifest() {
+  python - "$MANIFEST" "$DEST_BIN_REL" "$MANIFEST_REL" <<'PY'
+import json
+import sys
+
+manifest_path, firmware_rel, manifest_rel = sys.argv[1:4]
+with open(manifest_path, "r", encoding="utf-8") as fh:
+    manifest = json.load(fh)
+
+firmware_url = manifest.get("firmware", {}).get("url", "")
+suffix = "/" + firmware_rel.replace("\\", "/")
+if firmware_url.endswith(suffix):
+    print(firmware_url[: -len(suffix)] + "/" + manifest_rel)
+    raise SystemExit(0)
+
+raise SystemExit(1)
+PY
+}
+
+manifest_url_from_git_remote() {
+  local remote_url=$1
+  local branch=$2
+  local repo_path=
+
+  remote_url=${remote_url%.git}
+  case "$remote_url" in
+    git@github.com:*)
+      repo_path=${remote_url#git@github.com:}
+      ;;
+    https://github.com/*)
+      repo_path=${remote_url#https://github.com/}
+      ;;
+    http://github.com/*)
+      repo_path=${remote_url#http://github.com/}
+      ;;
+    ssh://git@github.com/*)
+      repo_path=${remote_url#ssh://git@github.com/}
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+
+  [[ -n "$repo_path" ]] || return 1
+  printf 'https://raw.githubusercontent.com/%s/%s/%s\n' "$repo_path" "$branch" "$MANIFEST_REL"
+}
+
+check_remote_manifest() {
+  local manifest_url=$1
+  local expected_version=$2
+  local expected_size=$3
+  local expected_sha256=$4
+  local check_url
+  local remote_manifest
+
+  if [[ -z "$manifest_url" ]]; then
+    note "Remote manifest URL could not be inferred; skipping remote check"
+    return 0
+  fi
+
+  if ! command -v curl >/dev/null 2>&1; then
+    note "curl not found; skipping remote manifest check"
+    return 0
+  fi
+
+  case "$manifest_url" in
+    *\?*) check_url="${manifest_url}&release_check=$(date +%s)" ;;
+    *) check_url="${manifest_url}?release_check=$(date +%s)" ;;
+  esac
+
+  note "Checking remote manifest: $manifest_url"
+  if ! remote_manifest=$(curl -fsSL --connect-timeout 10 --max-time 30 -H 'Cache-Control: no-cache' "$check_url"); then
+    note "Remote manifest request failed; GitHub may still be updating"
+    return 0
+  fi
+
+  python - "$remote_manifest" "$expected_version" "$expected_size" "$expected_sha256" <<'PY'
+import json
+import sys
+
+remote_json, expected_version, expected_size, expected_sha256 = sys.argv[1:5]
+try:
+    manifest = json.loads(remote_json)
+except json.JSONDecodeError as exc:
+    print(f"remote manifest: invalid JSON ({exc})")
+    raise SystemExit(0)
+
+firmware = manifest.get("firmware", {})
+remote_version = manifest.get("version")
+remote_size = firmware.get("size")
+remote_sha256 = firmware.get("sha256")
+
+checks = [
+    ("version", remote_version, expected_version),
+    ("size", str(remote_size), expected_size),
+    ("sha256", remote_sha256, expected_sha256),
+]
+
+matched = True
+for label, actual, expected in checks:
+    ok = actual == expected
+    matched = matched and ok
+    status = "OK" if ok else "STALE"
+    print(f"remote {label}: {actual} (expected {expected}) [{status}]")
+
+if matched:
+    print("remote manifest matches this release")
+else:
+    print("remote manifest does not match this release yet")
+PY
+}
+
 source_idf
 
 if (( DO_BUILD )); then
@@ -300,6 +413,9 @@ if (( DO_GIT )); then
     [[ -n "$remote" ]] || die "no git remote configured"
     note "Pushing $branch to $remote"
     git -C "$OTA_ROOT" push "$remote" "$branch"
+    remote_url=$(git -C "$OTA_ROOT" remote get-url "$remote")
+    manifest_url=$(manifest_url_from_local_manifest || manifest_url_from_git_remote "$remote_url" "$branch" || true)
+    check_remote_manifest "$manifest_url" "$next_version" "$firmware_size" "$validation_hash"
   fi
 fi
 
